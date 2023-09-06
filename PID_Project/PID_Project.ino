@@ -1,18 +1,27 @@
-// Incluimos librería
+// ---Teoría de control---
+
+// ---Implementación de un PID Fan controller---
+
+// Incluimos librerias
 #include <DHT.h>
 #include <PID_v2.h>
+#include "ESP8266WiFi.h"
  
 // Definimos el pin digital donde se conecta el sensor
 #define DHTPIN 2
-#define RELAY 0
-// Dependiendo del tipo de sensor
+
+// Definimos pines del fan cooler
+#define FAN_PULSE 5   //tachymeter fan pin // GPIO5
+#define FAN_CONTROL 4 //pwn fan pin // GPIO 4
+
+// Definición tipo de sensor
 #define DHTTYPE DHT11
  
 // Inicializamos el sensor DHT11
 DHT dht(DHTPIN, DHTTYPE);
 
 // PID Variables
-double setpoint = 17.0;
+double setpoint = 17.70;
 
 double output;
 
@@ -20,15 +29,18 @@ double tempActual;
 double humedad;
 double fahrenheit; 
 
-double Kp = 2, Ki = 5, Kd = 1;
-PID_v2 myPID(Kp, Ki, Kd, PID::Direct);
+double Kp = 60.0, Ki = 1.0, Kd = 1.0;
+PID myPID(&tempActual, &output, &setpoint, Kp, Ki, Kd, REVERSE);
 
-#define FAN_PULSE 5   //tachymeter fan pin // GPIO5
-#define FAN_CONTROL 4 //pwn fan pin // GPIO 4
+// Tacometro
 int rpm;
-int count = 0;
+int count = 0; 
+unsigned long start_time; 
 
-#include "ESP8266WiFi.h"
+float porcentaje;
+
+// Periodo grabacion
+unsigned long period_record = 10000; 
 
 // WiFi parameters to be configured
 const char* ssid = "WIFI-INTERNET"; // Write here your router's username
@@ -41,58 +53,65 @@ void setup(void)
   // Comenzamos el sensor DHT
   dht.begin();
 
-  // Fan   
-  //pinMode(FAN_PULSE, INPUT);
-  //digitalWrite(FAN_PULSE, HIGH);
+  // Fan pin modes
+  pinMode(FAN_PULSE, INPUT);  
   pinMode(FAN_CONTROL, OUTPUT);
   attachInterrupt(digitalPinToInterrupt(FAN_PULSE), counter, RISING);
 
-  //WriteOutput Relay
-  pinMode(RELAY, OUTPUT);  
   // Connect to WiFi
   WiFi.begin(ssid, password);
   
-
-  // while wifi not connected yet, print '.'
-  // then after it connected, get out of the loop
   while (WiFi.status() != WL_CONNECTED) {
      delay(500);
      Serial.print(".");
   }
-  //print a new line, then print WiFi connected and the IP address
+
   Serial.println("");
   Serial.println("WiFi connected");
-  // Print the IP address
+  
   Serial.println(WiFi.localIP());
 
   Serial.println("Server ON");
   // Inicializando Server
   server.begin();
+ // Inicializar el PID
+  myPID.SetMode(AUTOMATIC);
 
-  //myPID.SetOutputLimits(0, 255);
-  //myPID.SetMode(AUTOMATIC);
-    myPID.Start(tempActual,  // input
-              0,                      // current output
-              25);                   // setpoint
+  // Establecer los límites de salida del calentador (0 a 255 para PWM)
+  myPID.SetOutputLimits(0, 255);
+
+  period_record = millis();
 }
-void loop() {
-  //sendTcp("HolaMundo");
-  //recievedTcp();
-  delay(1000);
+void loop() {  
+  
+  obtenerTemperatura();
+  
+  getRPM();
 
-  rpm = count * 60 / 2;
-  count = 0;
-  Serial.print("RPM: ");
-  Serial.println(rpm);
+  controlPid();
+  
+  mostrarSerial();
+}
 
-  // Esperamos 5 segundos entre medidas
-  //delay(3000);
-  digitalWrite(RELAY, HIGH);
-  Serial.println("Relay Low");
-  //delay(3000);
-  //Serial.println("Relay High");
-  //digitalWrite(RELAY, HIGH);
- 
+void controlPid() {
+  // Calcular la salida del PID
+  myPID.Compute();
+  
+  // PID Function      
+  porcentaje = (output/255) * 100;  
+
+  // Calcula la velocidad del ventilador en función de la salida del PID
+  int fanSpeed = map(output, 0, 255, 0, 255); // Ajusta la salida del PID al rango del ventilador
+
+  // Controla la velocidad del ventilador (esto es un ejemplo, podría variar según tu hardware)
+  analogWrite(FAN_CONTROL, fanSpeed); // FAN_PIN debe ser reemplazado por el pin adecuado  
+}
+
+ICACHE_RAM_ATTR void counter() {
+  count++;
+}
+
+void obtenerTemperatura() {
   // Leemos la humedad relativa
   humedad = dht.readHumidity();
   // Leemos la temperatura en grados centígrados (por defecto)
@@ -110,69 +129,39 @@ void loop() {
   float hif = dht.computeHeatIndex(fahrenheit, humedad);
   // Calcular el índice de calor en grados centígrados
   float hic = dht.computeHeatIndex(tempActual, humedad, false);
- 
-  Serial.print("Humedad: ");
-  Serial.print(humedad);
-  Serial.print(" %\t");
-  Serial.print("Temperatura: ");
+
+}
+
+void getRPM() {
+  start_time = millis();
+  count = 0;
+
+  while ((millis() - start_time) < 1000)
+  {
+    // 1 seg. para contar vueltas
+  }    
+   rpm = (count / 2) * 60;   
+}
+
+void mostrarSerial() {
+
+  Serial.print("Temperatura: ");  
   Serial.print(tempActual);
-  Serial.print(" *C ");
-  Serial.print(fahrenheit);
-  Serial.print(" *F\t");
-  Serial.print("Índice de calor: ");
-  Serial.print(hic);
-  Serial.print(" *C ");
-  Serial.print(hif);
-  Serial.println(" *F");
+  Serial.print(" *C ");  
 
-  // PID Function
+  Serial.print("| SetPoint: ");
+  Serial.print(setpoint);
 
-  //myPID.Compute();
-  //output = myPID.Run(tempActual);
-  output = myPID.Run(tempActual);
-  Serial.print("output: ");
-  Serial.println(output);
+  Serial.print("| Vel. Ventilador:");
+  Serial.print(" | ");
+  Serial.print(rpm);
+  Serial.print(" | RPM ");
 
-  // Calcula la velocidad del ventilador en función de la salida del PID
-  int fanSpeed = map(output, 0, 255, 0, 255); // Ajusta la salida del PID al rango del ventilador
-  Serial.print("fanSpeed: ");
-  Serial.println(fanSpeed);
+  Serial.print("| Salida del PID: ");
+  Serial.print(output);
 
-  // Controla la velocidad del ventilador (esto es un ejemplo, podría variar según tu hardware)
-  analogWrite(FAN_CONTROL, fanSpeed); // FAN_PIN debe ser reemplazado por el pin adecuado
+  Serial.print(" | Potencia Máxima: " );
+  Serial.print(porcentaje);
+  Serial.println(" %");
 
-  
-}
-
-ICACHE_RAM_ATTR void counter() {
-  count++;
-}
-
-void recievedTcp() {
-  WiFiClient client = server.available();
-  if (!client) {    return;  }
-  while(!client.available()) {
-    delay(10);
-  }
-  String req = client.readStringUntil('\r');
-  Serial.println(req);
-  client.flush();
-  
-  delay(2000); 
-}
-
-void sendTcp(const char* message) {
-  if (WiFi.status() == WL_CONNECTED) {
-    WiFiClient client;
-    if (client.connect("192.168.1.107", 12345)) { // Cambia la dirección y el puerto según tu servidor
-      Serial.print("Enviando:");      
-      Serial.println(message);
-      client.write(message);
-    } else {
-      Serial.println("Fallo en la conexión");
-    }
-    // Cierra la conexión
-    client.stop();
-  }
-  delay(2000); 
 }
