@@ -12,8 +12,8 @@ byte defaultConfig;  // 0 es default // 1 Configurado remotamente
 
 struct ConfigParameters {
   double Kp = 60.0;
-  double Ki = 1.0;
   double Kd = 1.0;
+  double Ki = 1.0;
   double setpoint = 17.70;
   char serverIP[16] = "192.168.1.107";
   int portServer = 12345;
@@ -62,7 +62,7 @@ float porcentaje;
 unsigned long period_record = 10000;
 unsigned long period_last;
 unsigned long period_fan_last;
-unsigned long period_fan_action = 60000;
+unsigned long period_fan_action = 10000;
 // WiFi parameters to be configured
 const char* ssid = "WIFI-INTERNET";    // Write here your router's username
 const char* password = "solares3618";  // Write here your router's passward
@@ -93,6 +93,7 @@ void setup(void) {
   }
 
   pinMode(RELAY, OUTPUT);
+  digitalWrite(RELAY, LOW);
 
   Serial.println("");
   Serial.print("WiFi connected: ");
@@ -114,20 +115,23 @@ void loop() {
 
   obtenerTemperatura();
 
-  getRPM();
+  getRPM();  
 
   controlPid();
 
   controlFan();
-
+  
   mostrarSerial();
 
   recievedTcp();
+  
 
   if (millis() - period_last > period_record) {
-    period_last = millis();
-    message = buildMessageToSend(1);
-    sendTcp(message);
+    if (!(isnan(humedad) || isnan(tempActual) || isnan(fahrenheit))) {
+      period_last = millis();
+      message = buildMessageToSend(1);
+      sendTcp(message);
+    }
   }
 }
 
@@ -177,7 +181,11 @@ void obtenerTemperatura() {
 
   // Comprobamos si ha habido algún error en la lectura
   if (isnan(humedad) || isnan(tempActual) || isnan(fahrenheit)) {
+    // Error de sensor
+    message = buildMessageToSend(3);
+    sendTcp(message);
     Serial.println("Error obteniendo los datos del sensor DHT11");
+    tempActual = configParam.setpoint;  // Valor para que no sea indefinido el output
     return;
   }
 
@@ -237,19 +245,19 @@ void recievedTcp() {
 
   switch (action) {
     case 1:
-      Serial.println("Guardando Configuración");
+      Serial.print("Guardando Configuración - ");
       saveConfiguration(tokens);
       break;
     case 2:
-      Serial.println("Ejecutando Accion Relay ON");
+      Serial.print("Ejecutando Accion Relay ON - ");
       actionRelay(1);
       break;
     case 3:
-      Serial.println("Ejecutando Accion Relay OFF");
+      Serial.print("Ejecutando Accion Relay OFF - ");
       actionRelay(0);
       break;
     case 4:
-      Serial.println("Set Default Configuration");
+      Serial.print("Set Default Configuration - ");
       setDefaultConfiguration();
       break;
     default:
@@ -260,7 +268,7 @@ void recievedTcp() {
   Serial.println(recievedPacket);
   client.flush();
 
-  delay(200);
+  delay(1000);
 }
 
 String buildMessageToSend(int option) {
@@ -299,9 +307,8 @@ void sendTcp(String message) {
 void setupConfig() {
   Serial.println("Looking for configuration");
 
-  // If working by default ?
   EEPROM.get(0, defaultConfig);
-  Serial.println("defaultConfig");
+  Serial.print("defaultConfig: ");
   Serial.println(defaultConfig);
   if (defaultConfig != 0) {  // Default values;
     Serial.println("Getting remote configuration setting in EEPROM");
@@ -312,7 +319,6 @@ void setupConfig() {
     Serial.println(configParam.Kd);
     Serial.println(configParam.Kp);
     Serial.println(configParam.setpoint);
-
     Serial.println(configParam.ipaddress);
     Serial.println(configParam.port);
   } else {
@@ -342,7 +348,7 @@ void splitString(const String& input, char delimiter, String tokens[], int maxTo
         // Almacena el token en el arreglo de tokens
         for (int i = 0; i < token.length(); i++) {
           if (token[i] == ';') {
-            token.remove(i,1);
+            token.remove(i, 1);
           }
         }
 
@@ -363,8 +369,8 @@ void saveConfiguration(String tokens[]) {
   // example: 1;2.0;1.0;3.0;16.0;192.168.1.107;12345;192.168.1.100;3000;1
   Serial.println("Saving configuration");
   configParam.Kp = tokens[1].toDouble();
-  configParam.Ki = tokens[2].toDouble();
-  configParam.Kd = tokens[3].toDouble();
+  configParam.Kd = tokens[2].toDouble();
+  configParam.Ki = tokens[3].toDouble();
   configParam.setpoint = tokens[4].toDouble();
   tokens[5].toCharArray(configParam.serverIP, 15);
   configParam.portServer = tokens[6].toInt();
