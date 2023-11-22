@@ -51,31 +51,31 @@ void loop ()
 
   tempAnalogica = analogRead(sensorAnalogico);
   float tempF = 125.315-0.175529*tempAnalogica-2.5;
-  float tempCelcius = (tempF-32)/1.8;
+  float tempCelcius = ((tempF-32)/1.8)-5;
 
  Serial.print ("Valor temperatura: "); Serial.print (tempCelcius, 4); Serial.print (" C");
- if (tempCelcius<29.0 ){
+ if (tempCelcius<28.0 ){
     analogWrite(Led_Pin, 0);
     Serial.println ("  Nivel PWM 1 ");
-    sendTcp("Nivel PWM 1 - " + String(tempCelcius)+" C");
+    sendTcp("Nivel PWM 1 - apagado - " + String(tempCelcius)+" C");
 
- } else if (tempCelcius>=29.0 && tempCelcius<30.0 ){
+ } else if (tempCelcius>=28.0 && tempCelcius<29.0 ){
     analogWrite(Led_Pin, 50);
     Serial.println ("  Nivel PWM 2  ");
 
     sendTcp("Nivel PWM 2 - " + String(tempCelcius)+" C");
 
- }  else if (tempCelcius>=30.0 && tempCelcius<31.0 ){
+ }  else if (tempCelcius>=29.0 && tempCelcius<30.0 ){
     analogWrite(Led_Pin, 150);
     Serial.println ("  Nivel PWM 3  ");
 
     sendTcp("Nivel PWM 3 - " + String(tempCelcius)+" C");
 
- } else if (tempCelcius>=31.0){
+ } else if (tempCelcius>=30.0){
     analogWrite(Led_Pin, 255);
     Serial.println ( "  Nivel PWM 4  ");
 
-    sendTcp("Nivel PWM 4 - " + String(tempCelcius)+" C");
+    sendTcp("Nivel PWM 4 - maximo - " + String(tempCelcius)+" C");
 
  }
 
@@ -91,7 +91,7 @@ if (WiFi.status() == WL_CONNECTED) {
     WiFiClient client;
     // Trata de mandar el mensaje
     // ip y puerto
-    if (client.connect("192.168.205.3", 8080)) { 
+    if (client.connect("192.168.19.3", 8080)) { 
       Serial.println("Conexión establecida");
       client.println(message);
       client.println();
@@ -111,7 +111,4 @@ if (WiFi.status() == WL_CONNECTED) {
     client.stop();
   }
 
-
 }
-
-
