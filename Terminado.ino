@@ -98,7 +98,7 @@ void sendTcp(String message) {
   if (WiFi.status() == WL_CONNECTED) {
     WiFiClient client;
     //SETEAMOS DIRECCION IP Y PUERTO
-    if (client.connect("192.168.201.94", 8081)) {
+    if (client.connect("192.168.201.247", 8081)) {
       //SI LA CONEXION SE ESTABLECE SE ENVIA EL MENSAJE  
       client.print(message);
     } else {
