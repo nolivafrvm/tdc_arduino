@@ -13,8 +13,8 @@ DHT dht(DHTPIN, DHTTYPE);
 #include "ESP8266WiFi.h"
 
 // WiFi parameters to be configured
-const char* ssid = "WIFI-INTERNET"; // Write here your router's username
-const char* password = "solares3618"; // Write here your router's passward
+const char* ssid = "WifiInternet"; // Write here your router's username
+const char* password = "Nico12345"; // Write here your router's passward
 WiFiServer server(3000);
 
 void setup(void)
