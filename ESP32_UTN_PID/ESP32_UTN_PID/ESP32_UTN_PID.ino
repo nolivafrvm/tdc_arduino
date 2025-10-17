@@ -1,42 +1,50 @@
+// --- Pines y librerías ---
 #include <WiFi.h>
 #include <WebServer.h>
 #include <LiquidCrystal_I2C.h>
 #include <DHT.h>
 #include <PID_v1.h>
 
-// ---------- Pines ----------
 #define DHT_PIN 13
 #define LED_PIN 26
 #define VENTILADOR_LED_PIN 27
 #define BUZZER_PIN 25
 
+#define BUZZER_CH 0   // Canal LEDC para buzzer
+#define FAN_CH 1      // Canal LEDC para ventilador
+#define LED_CH 2      // Canal LEDC para LED
+#define PWM_FREQ 5000 // Frecuencia PWM ventilador/LED
+#define PWM_RES 8     // Resolución PWM 0-255
+#define TONE_FREQ 1000 // Frecuencia buzzer
 
-// ---------- Sensor ----------
-#define DHT_TYPE DHT11
-DHT dht(DHT_PIN, DHT_TYPE);
+// --- Sensor ---
+DHT dht(DHT_PIN, DHT11);
 
-// ---------- LCD ----------
+// --- LCD ---
 LiquidCrystal_I2C lcd(0x27, 16, 2);
 
-// ---------- Control PID ----------
+// --- PID ---
 double tempActual = 0;
-double setpoint = 25.0;   // Temperatura deseada
-double output = 0;        // Salida PID → PWM ventilador
-double Kp = 40.0, Ki = 2.0, Kd = 10.0;
-
+double setpoint = 25.0;
+double output = 0;
+double Kp = 25.0;
+double Ki = 0.2;
+double Kd = 10.0;
 PID controlPID(&tempActual, &output, &setpoint, Kp, Ki, Kd, REVERSE);
 
-// ---------- WiFi ----------
-
-// --- Parámetros AP ---
+// --- WiFi AP ---
 const char* apSSID = "ESP32_PID";
-const char* apPassword = "12345678";  // mínimo 8 caracteres
+const char* apPassword = "12345678";
+IPAddress local_IP(192, 168, 4, 1);
+IPAddress gateway(192, 168, 4, 1);
+IPAddress subnet(255, 255, 255, 0);
 
-IPAddress local_IP(192, 168, 4, 1);   // IP fija que quieres
-IPAddress gateway(192, 168, 4, 1);    // gateway, normalmente igual que la IP
-IPAddress subnet(255, 255, 255, 0);   // máscara de subred
-
+// --- Web ---
 WebServer server(80);
+
+// --- Buzzer temporizador ---
+unsigned long previousMillis = 0;
+bool buzzerState = false;
 
 void handleRoot() {
   String html = "<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'>";
@@ -54,9 +62,7 @@ void handleRoot() {
 }
 
 void handleSetpoint() {
-  if (server.hasArg("sp")) {
-    setpoint = server.arg("sp").toFloat();
-  }
+  if (server.hasArg("sp")) setpoint = server.arg("sp").toFloat();
   handleRoot();
 }
 
@@ -65,29 +71,28 @@ void setup() {
   lcd.init();
   lcd.backlight();
 
-  pinMode(LED_PIN, OUTPUT);
-  pinMode(VENTILADOR_LED_PIN, OUTPUT);
-  pinMode(BUZZER_PIN, OUTPUT);
-
   dht.begin();
   controlPID.SetMode(AUTOMATIC);
   controlPID.SetOutputLimits(0, 255);
 
-  // Conexión WiFi
+  // --- Configurar PWM ---
+  ledcSetup(FAN_CH, PWM_FREQ, PWM_RES);
+  ledcAttachPin(VENTILADOR_LED_PIN, FAN_CH);
+
+  ledcSetup(LED_CH, PWM_FREQ, PWM_RES);
+  ledcAttachPin(LED_PIN, LED_CH);
+
+  ledcSetup(BUZZER_CH, TONE_FREQ, 8);
+  ledcAttachPin(BUZZER_PIN, BUZZER_CH);
+
+  // --- Configurar AP ---
   WiFi.softAPConfig(local_IP, gateway, subnet);
   WiFi.softAP(apSSID, apPassword);
-
   Serial.println("Red AP creada!");
-  Serial.print("IP fija del AP: ");
+  Serial.print("IP: ");
   Serial.println(WiFi.softAPIP());
 
-  // Servidor web
-  server.on("/", handleRoot);
-  server.on("/set", handleSetpoint);
-  server.begin();
-  Serial.println("Servidor web iniciado");
-
-  // Servidor web
+  // --- Servidor web ---
   server.on("/", handleRoot);
   server.on("/set", handleSetpoint);
   server.begin();
@@ -98,31 +103,33 @@ void loop() {
   server.handleClient();
 
   tempActual = dht.readTemperature();
+  if (isnan(tempActual)) return;
 
-  if (isnan(tempActual)) {
-    Serial.println("Fallo en lectura DHT22");
-    return;
-  }
+  controlPID.Compute(); // salida normal
 
-  controlPID.Compute();
 
-  int pwmValue = (int)output;
-  analogWrite(VENTILADOR_LED_PIN, pwmValue);
+  // PWM ventilador y LED
+  int pwmValue = constrain((int)output, 0, 255);
+  ledcWrite(FAN_CH, pwmValue);
+  ledcWrite(LED_CH, pwmValue); // LED simula la velocidad del ventilador
+
   int porcentaje = map(pwmValue, 0, 255, 0, 100);
 
-  // Indicadores visuales
-  if (tempActual >= setpoint + 3) {
-    digitalWrite(LED_PIN, HIGH);
-    digitalWrite(BUZZER_PIN, HIGH);
+  // --- Control buzzer intermitente ---
+  unsigned long currentMillis = millis();
+  if (tempActual >= setpoint + 2) {
+    if (currentMillis - previousMillis >= 1000) { // alternar cada 1 segundo
+      buzzerState = !buzzerState;
+      previousMillis = currentMillis;
+    }
+    ledcWrite(BUZZER_CH, buzzerState ? 255 : 0);
   } else if (tempActual > setpoint) {
-    digitalWrite(LED_PIN, HIGH);
-    digitalWrite(BUZZER_PIN, LOW);
+    ledcWrite(BUZZER_CH, 0); // buzzer apagado
   } else {
-    digitalWrite(LED_PIN, LOW);
-    digitalWrite(BUZZER_PIN, LOW);
+    ledcWrite(BUZZER_CH, 0); // buzzer apagado
   }
 
-  // Mostrar en LCD
+  // --- LCD ---
   lcd.clear();
   lcd.setCursor(0, 0);
   lcd.print("T:"); lcd.print(tempActual, 1);
@@ -131,11 +138,11 @@ void loop() {
   lcd.setCursor(0, 1);
   lcd.print("Fan:"); lcd.print(porcentaje); lcd.print("%");
 
-  // Serial para debug
+  // --- Serial debug ---
   Serial.print("Temp: "); Serial.print(tempActual);
   Serial.print(" | SP: "); Serial.print(setpoint);
   Serial.print(" | PWM: "); Serial.print(pwmValue);
   Serial.print(" | %: "); Serial.println(porcentaje);
 
-  delay(1000);
+  delay(100); // loop rápido para control de buzzer
 }
