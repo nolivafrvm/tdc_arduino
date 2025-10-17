@@ -6,8 +6,8 @@
 #include <PID_v1.h>
 
 #define DHT_PIN 13
-#define LED_PIN 26
-#define VENTILADOR_LED_PIN 27
+#define LED_PIN 27
+#define VENTILADOR_LED_PIN 26
 #define BUZZER_PIN 25
 
 #define BUZZER_CH 0   // Canal LEDC para buzzer
@@ -25,7 +25,7 @@ LiquidCrystal_I2C lcd(0x27, 16, 2);
 
 // --- PID ---
 double tempActual = 0;
-double setpoint = 25.0;
+double setpoint = 23.0;
 double output = 0;
 double Kp = 25.0;
 double Ki = 0.2;
@@ -79,12 +79,14 @@ void setup() {
   ledcSetup(FAN_CH, PWM_FREQ, PWM_RES);
   ledcAttachPin(VENTILADOR_LED_PIN, FAN_CH);
 
-  ledcSetup(LED_CH, PWM_FREQ, PWM_RES);
-  ledcAttachPin(LED_PIN, LED_CH);
+  //ledcSetup(LED_CH, PWM_FREQ, PWM_RES);
+  //ledcAttachPin(LED_PIN, LED_CH);
 
   ledcSetup(BUZZER_CH, TONE_FREQ, 8);
   ledcAttachPin(BUZZER_PIN, BUZZER_CH);
 
+  pinMode(LED_PIN, OUTPUT);
+  digitalWrite(LED_PIN, HIGH);
   // --- Configurar AP ---
   WiFi.softAPConfig(local_IP, gateway, subnet);
   WiFi.softAP(apSSID, apPassword);
@@ -111,7 +113,7 @@ void loop() {
   // PWM ventilador y LED
   int pwmValue = constrain((int)output, 0, 255);
   ledcWrite(FAN_CH, pwmValue);
-  ledcWrite(LED_CH, pwmValue); // LED simula la velocidad del ventilador
+  //ledcWrite(LED_CH, pwmValue); // LED simula la velocidad del ventilador
 
   int porcentaje = map(pwmValue, 0, 255, 0, 100);
 
